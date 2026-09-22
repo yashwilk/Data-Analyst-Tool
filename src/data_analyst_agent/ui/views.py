@@ -7,6 +7,12 @@ import base64
 import streamlit as st
 
 
+def _escape_dollars(text: str) -> str:
+    """Streamlit markdown renders `$...$` as LaTeX, which mangles currency
+    ("$136,455.33 ... $661k" turns into italic math with the spaces gone)."""
+    return text.replace("$", r"\$")
+
+
 def render_health_status(is_healthy: bool) -> None:
     if is_healthy:
         st.sidebar.success("Backend: online")
@@ -52,7 +58,7 @@ def render_chat_turn(question: str, answer: str) -> None:
     with st.chat_message("user"):
         st.write(question)
     with st.chat_message("assistant"):
-        st.write(answer)
+        st.markdown(_escape_dollars(answer))
 
 
 def render_charts(charts: list[dict]) -> None:
@@ -65,12 +71,12 @@ def render_charts(charts: list[dict]) -> None:
 
 
 def render_research_report(result: dict) -> None:
-    st.markdown(result["answer"])
+    st.markdown(_escape_dollars(result["answer"]))
 
     if result.get("key_findings"):
         st.subheader("Key findings")
         for finding in result["key_findings"]:
-            st.markdown(f"- {finding}")
+            st.markdown(f"- {_escape_dollars(finding)}")
 
     render_charts(result.get("charts", []))
 
