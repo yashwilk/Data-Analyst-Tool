@@ -1,0 +1,4 @@
+* text=auto
+# Shell scripts run inside the Linux container and break with CRLF endings.
+*.sh text eol=lf
+Dockerfile text eol=lf
