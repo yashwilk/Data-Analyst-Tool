@@ -1,8 +1,5 @@
-"""Dev utility: render the compiled research graph as a Mermaid PNG.
+"""Render the compiled research graph as a Mermaid PNG.
 
-Not an LLM-callable tool -- run manually with `python -m
-data_analyst_agent.tools.export_graph_png` to regenerate docs/images/graph.png
-after changing graph.py.
 """
 
 from __future__ import annotations

@@ -1,25 +1,61 @@
 # Data Analyst Agent
 
-Ask questions about a dataset in plain English, in two modes:
+Ask questions about a dataset in plain English. There are two modes:
 
-- **💬 Chat** — quick, conversational, multi-turn answers ("What's our best-selling category?" → "And last quarter?").
-- **🔬 Research** — a deeper, multi-query analysis with a structured markdown report, key findings, and auto-generated charts.
+- **💬 Chat** gives quick answers and remembers the conversation, so you can ask more questions about the last answer ("Which category sells the most?" → "And last quarter?").
+- **🔬 Research** looks at a question from several angles and returns a report with key findings and charts.
 
-Ships with a sample dataset (~1,800 customer purchase records: products, categories, payment methods, ratings), loaded as a real `purchases` table in Supabase Postgres — see "Dataset setup" below. Requires a login (JWT auth) to use.
+You need to log in to use it.
 
-## Architecture
+## Dataset
 
-This mirrors the layered design of an existing internal LangGraph project (`Focused Research Agent`), adapted from "web research agent" to "dataset Q&A agent":
+**Customer Purchase History** is a free practice dataset from [ExcelX: Sales & Retail practice data](https://excelx.com/practice-data/sales-retail/) (`Customer-Purchase-History.xlsx`).
+
+- 1,800 purchases from Jan 2023 to Jun 2025
+- 1,642 customers
+- 7 products (Chair, Desk, Laptop, Monitor, Phone, Printer, Tablet) in 3 categories (Electronics, Furniture, Office Supplies)
+- 5 payment methods
+
+It is stored as a `purchases` table in Supabase (a hosted Postgres database).
+
+| Column | Type | Description |
+|---|---|---|
+| `customer_id` | text | Customer ID, e.g. `C5361` |
+| `customer_name` | text | Customer name |
+| `product` | text | Product bought |
+| `product_category` | text | Electronics, Furniture or Office Supplies |
+| `purchase_date` | date | Date of purchase |
+| `quantity` | integer | Number of units |
+| `unit_price` | numeric | Price per unit |
+| `total_price` | numeric | `quantity × unit_price` |
+| `payment_method` | text | Cash, Credit Card, Debit Card, Gift Card or Online |
+| `review_rating` | integer | Customer rating, 1 to 5 |
+
+Two things to keep in mind:
+
+- **2025 is only half a year** (January to June). Comparing 2025 with 2024 as full years is not fair.
+- **The data is made up.** Categories are split almost evenly and ratings are spread evenly from 1 to 5. So a flat result, with no big differences, is often the correct answer.
+
+## How it works
+
+The app is built in layers. Each layer has one job:
 
 ```
-UI (Streamlit) → API (FastAPI) → Application (use cases) → Graph (LangGraph) → Providers (Groq LLM, Postgres dataset) → Database (Supabase Postgres)
+UI (Streamlit) → API (FastAPI) → Use cases → AI pipeline (LangGraph) → Services (Groq LLM, Postgres) → Database (Supabase)
 ```
 
-Each layer only knows about the layer directly below it — the graph nodes have no idea they're behind HTTP, the API routers have no idea LangGraph exists.
+Each layer only uses the layers below it, never above. The AI pipeline does not know it is behind a web API, and the API does not know LangGraph exists.
 
-### The pipeline (`src/data_analyst_agent/graph.py`)
+### The AI pipeline (`src/data_analyst_agent/graph.py`)
 
-Both Chat and Research run the *same* fixed pipeline; a `mode` flag on the shared state makes a handful of nodes branch:
+Chat and Research use the **same** pipeline. A `mode` setting tells some steps to behave differently.
+
+![LangGraph pipeline](docs/images/graph.png)
+
+*This image is generated from the real code with `python -m data_analyst_agent.tools.export_graph_png`. Solid arrows always happen. Dotted arrows are decisions.*
+
+<details>
+<summary>Text version</summary>
 
 ```
 init_run → scope_question → generate_queries → execute_queries
@@ -36,72 +72,80 @@ init_run → scope_question → generate_queries → execute_queries
                                                   finalize_run ─────► END
 ```
 
-Any node that hits a real error routes to a terminal `handle_error` node instead — **nodes never raise**, they record the problem on `state["errors"]` and the graph always terminates cleanly. This was a deliberate carry-over from the reference project: it makes the pipeline trivially testable (every node is a pure function you can call with a plain dict) and means a single bad LLM response degrades to "I couldn't complete that" instead of a 500.
+</details>
 
-- `scope_question` — chat: resolves the question to one standalone sub-question (using conversation history for follow-ups like "and last month?"). Research: splits it into 2–4 facets (overall trend, breakdown by category, outliers, etc).
-- `generate_queries` — turns each sub-question into a PostgreSQL `SELECT` query against the dataset's schema.
-- `execute_queries` — runs them through the sandboxed `DataSourceProvider`.
-- `reflect_and_refine` — if a query errored or returned nothing, asks the LLM to fix it (bounded to 1 retry).
-- `synthesize_answer` — chat: a short conversational reply. Research: a structured markdown report (Overview / Key Findings / Analysis / Recommendations).
-- `build_charts` — **research only, and deliberately not LLM-driven**: a small heuristic picks a category/date column + a numeric column from each query result and renders a bar or line chart. See "Decisions & trade-offs" below for why.
+What each step does:
+
+- `scope_question` works out what to look up. In Chat, it turns the question into one full question, using the conversation so far (so "and last month?" makes sense). In Research, it splits the question into 2 to 4 angles, such as the overall trend, a breakdown by category, and outliers.
+- `generate_queries` asks the LLM to write a SQL `SELECT` query for each one.
+- `execute_queries` runs the queries. Each one is checked first, then run as a read only database user.
+- `reflect_and_refine` runs if a query failed or returned nothing. It asks the LLM to fix it. This happens once at most.
+- `synthesize_answer` writes the answer. Chat gets a short reply. Research gets a report with Overview, Key Findings, Analysis and Recommendations sections.
+- `build_charts` runs in Research only, and does not use the LLM. It follows a simple rule: the first number column is the value, another column is the label, and the chart is a line if the labels are dates, otherwise a bar. This works for results with two columns, like `month, total_sales`. Results with several label columns, like `year, month, total_sales`, can end up with the wrong axes.
+
+**Errors never crash the pipeline.** If a step fails, it writes the problem to `state["errors"]` instead of throwing an exception. The pipeline then jumps to `handle_error`, which returns a polite "I couldn't complete that" message. So one bad LLM reply never becomes a server error. It also means each step can be tested on its own by passing it a plain dictionary.
 
 ### Folder layout
 
 ```
 src/data_analyst_agent/
-  api/            FastAPI app, routers, Pydantic schemas, exception handling
-  application/    use cases (chat_use_case, research_use_case), validation, state normalization
-  auth/           JWT bearer auth: register/login, bcrypt hashing, get_current_user dependency
-  caching/        response cache (Research mode only) -- Redis if REDIS_URL is set, else in-memory
-  config/         one settings module per concern, env-var driven
-  core/           rate limiting (also Redis-backed if REDIS_URL is set), request logging middleware
-  database/       SQLAlchemy models (User, AnalysisRun) + repository pattern (only repository.py issues queries)
-  interfaces/     LLMProvider / DataSourceProvider abstract contracts
-  nodes/          the LangGraph pipeline steps described above
-  reliability/    circuit breaker around LLM calls
-  services/       concrete providers: Groq LLM, Postgres (Supabase) dataset engine
-  tools/          dev utility to export the graph diagram
-  ui/             Streamlit app (api_client.py talks HTTP, views.py renders, app.py wires them + login/register)
-  graph.py        builds the LangGraph pipeline
-  state.py        shared TypedDict state
-tests/            unit + integration tests with fake LLM/dataset providers (no network needed)
+  api/            FastAPI app: routes, request/response models, error handling
+  application/    use cases: what happens for a Chat or Research request
+  auth/           register, log in, password hashing, login tokens (JWT)
+  caching/        Research answer cache (Redis, or in memory if Redis is not set up)
+  config/         settings read from .env
+  core/           rate limiting and request logging
+  database/       tables as Python classes, and the only code that reads/writes them
+  interfaces/     the rules an LLM or data source must follow
+  nodes/          the pipeline steps listed above
+  reliability/    circuit breaker for LLM calls
+  services/       the real Groq LLM and Postgres implementations
+  tools/          script that draws the pipeline diagram
+  ui/             Streamlit web page (login, Chat, Research)
+  graph.py        connects the pipeline steps
+  state.py        the data passed from step to step
+tests/            tests that use a fake LLM and fake data (no internet needed)
 docs/
-  supabase_schema.sql   run once in Supabase's SQL Editor to create the 3 tables
+  supabase_schema.sql     creates the 3 tables
+  dataset_reader_role.sql creates the read only user for the LLM's SQL
+  images/graph.png        the pipeline diagram
 scripts/
-  upload_dataset.py      one-off loader: Excel file -> `purchases` table
+  upload_dataset.py       loads the Excel file into the `purchases` table
 ```
 
-## Dataset setup (Supabase)
+## Setting up the database (Supabase)
 
-The dataset, user accounts, and conversation history all live in a Supabase Postgres project (free tier).
+The dataset, user accounts and chat history are all stored in one free Supabase project.
 
-1. Create a Supabase project, then run `docs/supabase_schema.sql` in its SQL Editor (creates `users`, `purchases`, `analysis_runs`).
-2. Get the **Session pooler** connection string (Supabase dashboard → Connect → Connection string → Session pooler) — the free tier's "direct connection" is IPv6-only and often fails to resolve; the pooler is IPv4-compatible.
-3. Load the sample data: `python scripts/upload_dataset.py "postgresql+psycopg2://...your pooler string..."` (expects an Excel file at `data/Customer-Purchase-History.xlsx` with columns `CustomerID, Product, PurchaseDate, Quantity, UnitPrice, CustomerName, ProductCategory, PaymentMethod, ReviewRating, TotalPrice` — supply your own if you're starting fresh; this repo's copy of the Supabase project already has the data loaded).
-4. Put the same connection string (with `+asyncpg` instead of `+psycopg2`) in `.env` as `DATABASE_URL`.
-5. Run `docs/dataset_reader_role.sql` (set a password first) and put the same pooler string, with user `dataset_reader.<project-ref>` and that password, in `.env` as `DATASET_DATABASE_URL`. This is the role the LLM's SQL runs as.
+1. Create a Supabase project. In its SQL Editor, run `docs/supabase_schema.sql`. This creates the `users`, `purchases` and `analysis_runs` tables.
+2. Copy the **Session pooler** connection string (Supabase dashboard → Connect → Connection string → Session pooler).
+3. Load the data: download `Customer-Purchase-History.xlsx` from [ExcelX](https://excelx.com/practice-data/sales-retail/), save it as `data/Customer-Purchase-History.xlsx`, then run `python scripts/upload_dataset.py "postgresql+psycopg2://...your pooler string..."`.
+4. Put the same connection string in `.env` as `DATABASE_URL`, with `+asyncpg` instead of `+psycopg2`.
+5. Create the read only user: set a password in `docs/dataset_reader_role.sql` and run it in the SQL Editor. Then add `DATASET_DATABASE_URL` to `.env`: the same pooler string, but with the user `dataset_reader.<project-ref>` and that password. The LLM's SQL runs as this user.
 
 ## Running it
 
-### Docker (recommended)
+### With Docker (recommended)
 
 ```bash
 cp .env.example .env
-# edit .env: GROQ_API_KEY, DATABASE_URL, AUTH_SECRET_KEY (see Dataset setup above)
+# edit .env: GROQ_API_KEY, DATABASE_URL, DATASET_DATABASE_URL, AUTH_SECRET_KEY (see above)
 
 docker compose up --build
 ```
 
-This also starts a local Redis container (used for the response cache + rate limiting, with an in-memory fallback if you run without Docker/Redis).
+This starts two containers: the app, and Redis for the cache and rate limits.
 
-- API + docs: http://localhost:8000/docs
-- UI: http://localhost:8501 — register an account or log in, then use Chat/Research
+- Web app: http://localhost:8501 (create an account or log in, then use Chat or Research)
+- API docs: http://localhost:8000/docs
 
-### Locally, without Docker
+### Without Docker
 
 ```bash
-uv venv && uv pip install -e ".[dev]"   # or: python -m venv .venv && pip install -e ".[dev]"
-cp .env.example .env   # set GROQ_API_KEY, DATABASE_URL, AUTH_SECRET_KEY
+python -m venv .venv
+.venv\Scripts\activate          # macOS/Linux: source .venv/bin/activate
+pip install -e ".[dev]"
+cp .env.example .env   # set GROQ_API_KEY, DATABASE_URL, DATASET_DATABASE_URL, AUTH_SECRET_KEY
 
 # Terminal 1
 uvicorn data_analyst_agent.api.app:create_app --factory --reload
@@ -110,41 +154,48 @@ uvicorn data_analyst_agent.api.app:create_app --factory --reload
 streamlit run src/data_analyst_agent/ui/app.py
 ```
 
-`REDIS_URL` left blank means the cache/rate-limiter fall back to in-memory automatically — no Redis needed to run locally.
+You don't need Redis for this. If `REDIS_URL` is blank, the cache and rate limits are kept in memory instead.
 
-### Tests (no API key, Supabase, or Redis needed — LLM/dataset are faked)
+### Tests
+
+You don't need an API key, Supabase or Redis. The tests use a fake LLM, fake data and a temporary SQLite database. Run them from the virtual environment above:
 
 ```bash
 pytest -q
 ```
 
-## Decisions & trade-offs
+## Decisions and tradeoffs
 
-**Real external services where the risk is low, in-memory/local where it isn't.** Supabase (Postgres) and Groq are both live network dependencies — genuinely useful, but they're also the two things that could fail during a demo if the network hiccups. Redis, by contrast, runs as a local container in the same Docker network as the app, so it carries none of that live-demo risk; it's purely a "does this survive a restart" upgrade, with an in-memory fallback if `REDIS_URL` isn't set. The abstractions that make each of these swappable (repository pattern, provider interfaces, a `ResponseCache` protocol) stay in place regardless of which backend is actually wired up.
+**Every outside service can be swapped.** The LLM, the dataset, the cache and the app's storage each sit behind a simple interface (`LLMProvider`, `DataSourceProvider`, `ResponseCache`, and the repository). Only Groq is set up, because it is fast and free. Adding another LLM, such as Ollama to run fully offline, means one new file in `services/` and one line in `llm_factory.py`. Nothing else changes.
 
-**Fixed pipeline over LLM tool-calling.** The agent doesn't decide *whether* to query the dataset — it always does, deterministically, the same way the reference project always searches the web. For one well-known dataset this is more predictable and testable than open-ended tool-calling would be, at the cost of flexibility if the assistant needed to do arbitrarily different *kinds* of things later (call an external API, write a file, etc).
+**Redis is optional.** With Redis, the cache and rate limits are shared if you run more than one copy of the app. Without it, they are kept in memory, which is fine for a single copy.
 
-**Charts are rendered by a heuristic, not by LLM-generated code.** The tempting alternative — ask the LLM to write matplotlib/pandas code and `exec()` it — is a second, much riskier "generate and run arbitrary code" surface stacked on top of the SQL one. Instead, `build_charts` looks at the shape of an already-validated query result (one categorical/date column + one numeric column) and picks a bar or line chart. Less flexible (no scatter plots, no multi-series), but the *only* LLM output that ever gets executed anywhere in this app is sandboxed, read-only SQL.
+**Hosted services instead of running everything locally.** Supabase and Groq are free, quick to set up and close to what a real deployment would use. The tradeoff is that the app needs an internet connection. A circuit breaker handles Groq outages: after 5 failures in a row, it stops calling Groq for 30 seconds, so users get a fast error instead of a long wait.
 
-**SQL is validated, not trusted.** The LLM's queries are treated as untrusted input: `DataSourceProvider.execute_query` rejects anything that isn't a single `SELECT`/`WITH` statement, blocks DDL/DML keywords, and caps returned rows. This matters more here than in the reference project, where "tool use" was a fixed web-search call with no user-influenced code path. The regex is only the first layer, though: it stops writes but not *which table* a `SELECT` reads, and `users` (password hashes) lives in the same database. So the dataset connection uses a separate least-privilege Postgres role (`docs/dataset_reader_role.sql`) that can only `SELECT` from `purchases`, with read-only transactions and a 10s statement timeout. A prompt-injected `SELECT * FROM users` is then refused by Postgres itself (`permission denied`), whatever the prompt or the regex let through.
+**A fixed pipeline, not LLM tool calling.** The LLM does not decide *whether* to query the data. It always does, in the same steps. For one known dataset, this is more predictable and easier to test. The downside is less flexibility: if the app later needed to do very different things, like call another API, the pipeline would need new steps.
 
-**Chat is cached never, Research is cached by exact question text.** Chat is inherently conversational — the same words can mean something different depending on history, so caching it would be actively wrong. Research is stateless and expensive (multiple LLM calls); caching it means asking the same deep question twice in a demo is instant the second time.
+**Charts come from a simple rule, not code written by the LLM.** The other option was to let the LLM write chart code and run it. That means running code written by an AI on the server, which is risky. The rule is safer but less flexible: only bar and line charts, one data series each. The only LLM output that is ever run in this app is SQL, and that SQL is checked and read only.
 
-**Real JWT auth, not a single shared API key.** Every chat/research/dataset/conversations call requires a logged-in user (`auth/security.py`: bcrypt password hashing + JWT issuing/verification, ported near-verbatim from the reference project's approach). Conversation history (`analysis_runs.user_id`) is scoped per user.
+**The LLM's SQL is never trusted.** Every query goes through two layers of protection:
 
-**Any LLM backend can be swapped in via the `LLMProvider` interface** (`interfaces/llm_inference.py`); only Groq's free tier is wired up (`services/llm_provider_groq.py` + `llm_factory.py`) since it's fast and free, but adding e.g. Ollama for a fully offline setup is a new provider file + one branch in the factory, not a rewrite — same pattern as swapping the dataset backend (`interfaces/data_source.py`).
+1. **A check in the code.** Only a single `SELECT` or `WITH` statement is allowed. Words like `DELETE`, `DROP` and `UPDATE` are blocked, and the number of rows returned is capped.
+2. **A read only database user.** The check above cannot stop a `SELECT` from reading the wrong table, and the `users` table (with password hashes) is in the same database. So the LLM's SQL runs as `dataset_reader` (`docs/dataset_reader_role.sql`). This user can only read `purchases`, can never write, and any query is stopped after 10 seconds. If someone tricks the LLM into running `SELECT * FROM users`, Postgres itself refuses with "permission denied".
+
+**Chat is never cached. Research is cached for 10 minutes.** A chat answer depends on the conversation, so "and 2024?" means something different in every chat. Caching it would give wrong answers. Research has no history and costs several LLM calls, so successful results are saved. Asking the same question again (ignoring capital letters and extra spaces) returns instantly. The cache is shared by all users. That is fine here because everyone sees the same data. If each user had their own data, the cache key would need to include the user ID.
+
+**Real user accounts, not one shared password.** Every Chat, Research, dataset and conversation request needs a logged in user. Passwords are stored as bcrypt hashes, never as plain text, and logins use JWT tokens (`auth/security.py`). Each user sees only their own list of past conversations.
 
 ## API
 
-| Method | Path | Auth | Description |
+| Method | Path | Login needed | What it does |
 |---|---|---|---|
-| GET | `/health` | none | liveness check |
-| POST | `/api/v1/auth/register` | none | create an account, returns a JWT |
-| POST | `/api/v1/auth/login` | none | returns a JWT |
-| GET | `/api/v1/dataset/schema` | bearer | columns, dtypes, sample values, row count |
-| POST | `/api/v1/chat` | bearer | `{question, conversation_id?}` → short answer, threads conversation |
-| POST | `/api/v1/research` | bearer | `{question}` → markdown report + key findings + charts |
-| GET | `/api/v1/conversations` | bearer | list your past chat conversations |
-| GET | `/api/v1/conversations/{id}` | bearer | full turn history for one conversation |
+| GET | `/health` | no | checks the API is running |
+| POST | `/api/v1/auth/register` | no | creates an account and returns a login token |
+| POST | `/api/v1/auth/login` | no | returns a login token |
+| GET | `/api/v1/dataset/schema` | yes | columns, types, example values and row count |
+| POST | `/api/v1/chat` | yes | `{question, conversation_id?}` → short answer, continues the conversation |
+| POST | `/api/v1/research` | yes | `{question}` → report, key findings and charts |
+| GET | `/api/v1/conversations` | yes | lists your past chats |
+| GET | `/api/v1/conversations/{id}` | yes | every turn of one chat |
 
-Full interactive docs at `/docs` once the API is running.
+Once the API is running, you can try every endpoint at `/docs`.

@@ -1,13 +1,11 @@
 """Turn query results into the final answer.
 
-Mode branch is the whole reason chat and research share one graph
-skeleton but feel different to the user:
+
 - chat: short, conversational, 1 query result, no chart.
 - research: longer structured markdown (Overview / Key Findings /
   Analysis / Recommendations) synthesizing every query result, feeding
   `build_charts` afterwards.
 
-Citations are validated the same way the reference project validates
 citation URLs: only labels that correspond to a real, executed query are
 kept, so the LLM can't "cite" evidence that doesn't exist.
 """

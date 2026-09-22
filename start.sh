@@ -1,9 +1,6 @@
 #!/usr/bin/env bash
 # Runs the FastAPI backend (background, port 8000) and the Streamlit UI
-# (foreground, port 8501) in a single container -- same "one container,
-# two processes" shape as the reference project, minus the HF-Spaces
-# single-port constraint since this is meant to run locally via
-# docker-compose with both ports published.
+# (foreground, port 8501) in a single container
 set -euo pipefail
 
 echo "Starting FastAPI backend..."

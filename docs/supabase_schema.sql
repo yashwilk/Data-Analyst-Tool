@@ -1,10 +1,5 @@
--- Run this once in Supabase's SQL Editor before running scripts/upload_dataset.py.
--- When prompted about Row Level Security, choose "Run and enable RLS": the
--- backend connects directly with the database connection string (bypasses
--- RLS by role), so this only locks the tables out of Supabase's public
--- PostgREST API, which this app never uses.
 
--- 1. Auth (mirrors the reference project's User model)
+-- 1. Auth Table
 create table if not exists public.users (
     id bigint generated always as identity primary key,
     email text not null unique,
@@ -13,9 +8,7 @@ create table if not exists public.users (
 );
 
 -- 2. The dataset itself
--- Columns are snake_case on purpose: Postgres silently lowercases
--- unquoted identifiers, so keeping "CustomerID"-style mixed case would
--- break any LLM-generated SQL that doesn't quote it.
+
 create table if not exists public.purchases (
     id bigint generated always as identity primary key,
     customer_id text,
@@ -30,7 +23,7 @@ create table if not exists public.purchases (
     total_price numeric(10, 2)
 );
 
--- 3. Chat/research history (mirrors AnalysisRun / the reference project's ConversationRun)
+-- 3. Chat/research history 
 create table if not exists public.analysis_runs (
     id bigint generated always as identity primary key,
     run_id text not null,

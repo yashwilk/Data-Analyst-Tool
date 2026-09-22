@@ -1,9 +1,5 @@
 """Chat mode: quick, conversational, multi-turn.
 
-Analogue of the reference project's `chat_use_case`. Every turn is
-persisted (best-effort -- a DB hiccup shouldn't fail the chat response),
-history is threaded in so follow-ups like "and last month?" resolve
-correctly in `scope_question`.
 """
 
 from __future__ import annotations

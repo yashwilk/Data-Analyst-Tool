@@ -4,10 +4,7 @@ Supabase `purchases` table (schema created via docs/supabase_schema.sql).
 Usage:
     python scripts/upload_dataset.py "postgresql+psycopg2://user:pass@host:port/dbname"
 
-Column names are renamed to snake_case on the way in: Postgres folds
-unquoted identifiers to lowercase, so keeping the Excel file's original
-`CustomerID`-style names would make every LLM-generated (unquoted) SQL
-query fail with "column does not exist".
+
 """
 
 from __future__ import annotations

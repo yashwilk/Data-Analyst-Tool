@@ -29,11 +29,6 @@ class QueryResult(TypedDict):
 class DataSourceProvider(ABC):
     """Contract for anything that can describe + query a tabular dataset.
 
-    This is the "search provider" analogue from the reference project:
-    the LLM never touches raw data directly, it only ever sees
-    `get_schema()` and asks for queries to be run through here. Swapping
-    the backing dataset/engine (DuckDB -> Postgres -> a warehouse) means a
-    new provider class, not a rewrite of the graph.
     """
 
     @abstractmethod

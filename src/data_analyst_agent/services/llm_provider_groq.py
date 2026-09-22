@@ -47,12 +47,7 @@ class GroqLLMProvider(LLMProvider):
         self._max_retries = config["max_retries"]
 
     async def generate_json(self, prompt: str) -> dict:
-        # Retry covers the *whole* round trip (call + parse), not just the
-        # network call: a malformed/truncated JSON response is a fault worth
-        # retrying too (a fresh completion often succeeds where the previous
-        # one got cut off or mis-escaped a quote), and previously it wasn't
-        # retried at all -- LLM_MAX_RETRIES was only ever exercised by
-        # network errors.
+
         @retry(
             stop=stop_after_attempt(self._max_retries),
             wait=wait_exponential(multiplier=1, min=1, max=8),

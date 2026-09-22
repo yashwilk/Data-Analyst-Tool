@@ -1,7 +1,6 @@
 """Builds the LangGraph pipeline shared by Chat and Research.
 
-Errors are recorded on `state["errors"]` and routed to a terminal
-`handle_error` node) rather than LLM-driven tool-calling(Trade-off).
+
 
     START -> init_run -> scope_question -> generate_queries -> execute_queries
                                                                      |

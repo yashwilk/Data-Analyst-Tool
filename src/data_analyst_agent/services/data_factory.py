@@ -17,11 +17,6 @@ _provider: PostgresDataSourceProvider | None = None
 def get_data_source_provider() -> DataSourceProvider:
     """Process-wide singleton connection pool to the dataset table.
 
-    Construction here is cheap (just builds the pool lazily); the schema
-    itself is loaded once via `ensure_schema_loaded()` at app startup
-    (see `api/app.py`'s lifespan) since that requires a network round
-    trip and `DataSourceProvider.get_schema()` is a sync method called
-    from inside the (sync-friendly) graph-building code.
     """
     global _provider
     if _provider is None:

@@ -1,10 +1,6 @@
 """Research mode: deep, multi-facet, always includes charts.
 
-Analogue of the reference project's `report_use_case`: single-turn (no
-conversation threading), higher latency (multiple SQL queries + a longer
-synthesis prompt), and -- unlike chat -- cached, since re-running the
-same deep question twice in a demo is wasted LLM calls for an identical
-answer.
+
 """
 
 from __future__ import annotations
