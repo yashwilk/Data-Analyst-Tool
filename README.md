@@ -79,6 +79,7 @@ The dataset, user accounts, and conversation history all live in a Supabase Post
 2. Get the **Session pooler** connection string (Supabase dashboard → Connect → Connection string → Session pooler) — the free tier's "direct connection" is IPv6-only and often fails to resolve; the pooler is IPv4-compatible.
 3. Load the sample data: `python scripts/upload_dataset.py "postgresql+psycopg2://...your pooler string..."` (expects an Excel file at `data/Customer-Purchase-History.xlsx` with columns `CustomerID, Product, PurchaseDate, Quantity, UnitPrice, CustomerName, ProductCategory, PaymentMethod, ReviewRating, TotalPrice` — supply your own if you're starting fresh; this repo's copy of the Supabase project already has the data loaded).
 4. Put the same connection string (with `+asyncpg` instead of `+psycopg2`) in `.env` as `DATABASE_URL`.
+5. Run `docs/dataset_reader_role.sql` (set a password first) and put the same pooler string, with user `dataset_reader.<project-ref>` and that password, in `.env` as `DATASET_DATABASE_URL`. This is the role the LLM's SQL runs as.
 
 ## Running it
 
@@ -125,7 +126,7 @@ pytest -q
 
 **Charts are rendered by a heuristic, not by LLM-generated code.** The tempting alternative — ask the LLM to write matplotlib/pandas code and `exec()` it — is a second, much riskier "generate and run arbitrary code" surface stacked on top of the SQL one. Instead, `build_charts` looks at the shape of an already-validated query result (one categorical/date column + one numeric column) and picks a bar or line chart. Less flexible (no scatter plots, no multi-series), but the *only* LLM output that ever gets executed anywhere in this app is sandboxed, read-only SQL.
 
-**SQL is validated, not trusted.** The LLM's queries are treated as untrusted input: `DataSourceProvider.execute_query` rejects anything that isn't a single `SELECT`/`WITH` statement, blocks DDL/DML keywords, and caps returned rows. This matters more here than in the reference project, where "tool use" was a fixed web-search call with no user-influenced code path.
+**SQL is validated, not trusted.** The LLM's queries are treated as untrusted input: `DataSourceProvider.execute_query` rejects anything that isn't a single `SELECT`/`WITH` statement, blocks DDL/DML keywords, and caps returned rows. This matters more here than in the reference project, where "tool use" was a fixed web-search call with no user-influenced code path. The regex is only the first layer, though: it stops writes but not *which table* a `SELECT` reads, and `users` (password hashes) lives in the same database. So the dataset connection uses a separate least-privilege Postgres role (`docs/dataset_reader_role.sql`) that can only `SELECT` from `purchases`, with read-only transactions and a 10s statement timeout. A prompt-injected `SELECT * FROM users` is then refused by Postgres itself (`permission denied`), whatever the prompt or the regex let through.
 
 **Chat is cached never, Research is cached by exact question text.** Chat is inherently conversational — the same words can mean something different depending on history, so caching it would be actively wrong. Research is stateless and expensive (multiple LLM calls); caching it means asking the same deep question twice in a demo is instant the second time.
 

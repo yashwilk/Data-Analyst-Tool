@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import logging
+
 from data_analyst_agent.config.data_config import get_data_settings
 from data_analyst_agent.config.database_config import get_database_settings
 from data_analyst_agent.interfaces.data_source import DataSourceProvider
 from data_analyst_agent.services.data_source_provider_postgres import (
     PostgresDataSourceProvider,
 )
+
+logger = logging.getLogger(__name__)
 
 _provider: PostgresDataSourceProvider | None = None
 
@@ -22,9 +26,15 @@ def get_data_source_provider() -> DataSourceProvider:
     global _provider
     if _provider is None:
         data_settings = get_data_settings()
-        db_settings = get_database_settings()
+        dsn = data_settings.database_url
+        if dsn is None:
+            logger.warning(
+                "DATASET_DATABASE_URL not set -- LLM-generated SQL will run with "
+                "DATABASE_URL's privileges; see docs/dataset_reader_role.sql"
+            )
+            dsn = get_database_settings().database_url
         _provider = PostgresDataSourceProvider(
-            dsn=db_settings.database_url,
+            dsn=dsn,
             table_name=data_settings.table_name,
             max_result_rows=data_settings.max_result_rows,
         )
