@@ -21,11 +21,7 @@ def get_llm_config() -> dict:
     api_key = os.getenv("GROQ_API_KEY", "").strip()
     temperature = float(os.getenv("LLM_TEMPERATURE", "0.1"))
     max_retries = int(os.getenv("LLM_MAX_RETRIES", "3"))
-    # Research answers are a full markdown report *plus* key_findings/citations
-    # all inside one JSON completion -- 2048 was cutting that off mid-array,
-    # producing invalid JSON. Cost/latency are billed on tokens actually
-    # generated, not this cap, so headroom here is free for the (short) chat
-    # answers that never approach it.
+  
     max_tokens = int(os.getenv("LLM_MAX_TOKENS", "6000"))
 
     if provider != "groq":

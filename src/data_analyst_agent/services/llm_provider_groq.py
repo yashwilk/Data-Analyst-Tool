@@ -1,6 +1,6 @@
 """Groq-backed LLM provider.
 
-Same shape as the reference project's provider classes: retry with
+retry with
 exponential backoff, then a circuit breaker around the whole call, then
 tolerant JSON extraction (LLMs wrap JSON in prose/code fences more often
 than not, especially smaller/faster models like Groq's).

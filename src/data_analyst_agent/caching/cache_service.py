@@ -2,11 +2,7 @@
 
 Redis-backed when `REDIS_URL` is set, falling back to an in-process
 in-memory TTL dict otherwise. Redis here is a *local* container in
-docker-compose (no external account, no network dependency beyond the
-app's own Docker network), so unlike the Supabase/Groq calls this
-doesn't add any live-demo risk; it's purely a "does this survive a
-restart / work if you scale to more than one instance" upgrade over the
-in-memory version.
+docker-compose 
 
 Only Research is cached (deep, multi-query, multiple LLM calls -> worth
 avoiding re-computation if the same question is asked twice in a demo).
