@@ -1,16 +1,6 @@
 """Postgres (Supabase)-backed DataSourceProvider.
 
-Replaces the earlier in-memory DuckDB engine: the dataset now lives as a
-real `purchases` table in the same Supabase Postgres instance as
-`users`/`analysis_runs`, queried over the network via a dedicated asyncpg
-connection pool (kept separate from the SQLAlchemy engine used for
-app-state tables -- LLM-generated, ad-hoc SQL against the dataset
-shouldn't share a session/transaction scope with the ORM-mapped models).
 
-Safety is unchanged in spirit from the DuckDB version: the LLM only ever
-*proposes* SQL text; every query is passed through `_ensure_read_only`
-before execution. Only a single `SELECT`/`WITH` statement is allowed --
-no DDL/DML, no stacked statements. Rows returned are capped.
 """
 
 from __future__ import annotations
