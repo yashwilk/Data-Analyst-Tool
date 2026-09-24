@@ -1,10 +1,8 @@
 """The ONLY module in ui/ that imports httpx -- everything else renders.
 
 Auth: the backend issues a JWT on register/login; every subsequent call
-takes that token and sends it as `Authorization: Bearer <token>`, mirroring
-the reference project's `Home.py` (token kept in `st.session_state`,
-never in a static config value -- unlike the earlier single-API-key
-scheme this replaced).
+takes that token and sends it as `Authorization: Bearer <token>`. The
+token is kept in `st.session_state`, never in a static config value.
 """
 
 from __future__ import annotations

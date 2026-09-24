@@ -2,7 +2,7 @@
 
 Redis-backed when `REDIS_URL` is set, falling back to an in-process
 in-memory TTL dict otherwise. Redis here is a *local* container in
-docker-compose 
+docker-compose.
 
 Only Research is cached (deep, multi-query, multiple LLM calls -> worth
 avoiding re-computation if the same question is asked twice in a demo).
@@ -51,14 +51,7 @@ class InMemoryResponseCache:
 
 
 class RedisResponseCache:
-    """Thin wrapper -- values are JSON-serialized dicts, TTL is native Redis EXPIRE.
-
-    Uses the sync `redis` client deliberately: cache reads/writes are a
-    sub-millisecond local-network call, negligible next to the
-    multi-second LLM calls the use cases already make, so the small
-    amount of blocking-in-an-async-function isn't worth the extra
-    complexity of an async Redis client here.
-    """
+    """Thin wrapper -- values are JSON-serialized dicts, TTL is native Redis EXPIRE."""
 
     _KEY_PREFIX = "data_analyst_agent:research_cache:"
 

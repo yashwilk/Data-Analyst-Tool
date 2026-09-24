@@ -62,4 +62,4 @@ def pytest_sessionfinish(session, exitstatus):
     try:
         _TEST_DB_PATH.unlink(missing_ok=True)
     except PermissionError:
-        pass  # Windows: sqlite file still held open by a pooled connection
+        pass

@@ -16,7 +16,7 @@ def _utcnow() -> datetime:
 
 
 class User(Base):
-    """Mirrors the reference project's User model -- bcrypt hash + email login."""
+    """App user -- email login with a bcrypt password hash."""
 
     __tablename__ = "users"
 
@@ -34,8 +34,7 @@ class AnalysisRun(Base):
     """One row per chat turn or research request.
 
     List/JSON-ish fields (`queries_used`, `key_findings`, `charts_meta`,
-    `errors`) are stored as JSON text, same pattern as the reference
-    project's `ConversationRun` -- avoids a normalized schema for data
+    `errors`) are stored as JSON text -- avoids a normalized schema for data
     that's always read/written as a whole blob per run.
 
     Chart *images* are intentionally NOT persisted (only title/caption
